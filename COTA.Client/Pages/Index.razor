@@ -1,0 +1,90 @@
+﻿@page "/"
+@using COTA.Core.Models
+@inject HttpClient Http
+
+<h3>Solana Tax Calculator</h3>
+
+<div>
+    <label>Wallet Address:</label>
+    <input @bind="walletAddress" />
+    <button @onclick="CalculateTaxes">Get Tax Report</button>
+</div>
+
+@if (taxCalculations != null)
+{
+    <h4>Capital Gains</h4>
+    <table>
+        <thead>
+            <tr>
+                <th>Asset</th>
+                <th>Gain/Loss</th>
+                <th>Short-Term</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var calc in taxCalculations)
+            {
+                <tr>
+                    <td>@calc.Asset</td>
+                    <td>@calc.GainOrLoss.ToString("C")</td>
+                    <td>@(calc.IsShortTerm ? "Yes" : "No")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@if (stakingRewards != null)
+{
+    <h4>Staking Income</h4>
+    <table>
+        <thead>
+            <tr>
+                <th>Amount (SOL)</th>
+                <th>Date</th>
+                <th>USD Value</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var reward in stakingRewards)
+            {
+                <tr>
+                    <td>@reward.Amount</td>
+                    <td>@reward.Timestamp.ToShortDateString()</td>
+                    <td>@reward.UsdValueAtTime.ToString("C")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+<div>
+    <a href="https://localhost:7082/api/wallets/report/capital-gains" download>Download Capital Gains CSV</a>
+    <a href="https://localhost:7082/api/wallets/report/staking-income" download>Download Staking Income CSV</a>
+</div>
+
+@code {
+    private string walletAddress = "";
+    private List<TaxCalculation>? taxCalculations;
+    private List<StakingReward>? stakingRewards;
+
+    private async Task CalculateTaxes()
+    {
+        try
+        {
+            var response = await Http.GetFromJsonAsync<TaxResponse>($"api/wallets/{walletAddress}/taxes");
+            taxCalculations = response?.CapitalGains;
+            stakingRewards = response?.StakingRewards;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error: {ex.Message}");
+        }
+    }
+
+    private class TaxResponse
+    {
+        public List<TaxCalculation>? CapitalGains { get; set; }
+        public List<StakingReward>? StakingRewards { get; set; }
+    }
+}
