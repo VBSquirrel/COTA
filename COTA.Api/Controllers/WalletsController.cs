@@ -2,6 +2,7 @@
 using COTA.Api.Services;
 using COTA.Core.Models;
 using System.Text.Json;
+using System.Diagnostics;
 
 namespace COTA.Api.Controllers;
 
@@ -25,16 +26,32 @@ public class WalletsController : ControllerBase
     }
 
     [HttpGet("{address}/taxes")]
-    public async Task<ActionResult<TaxResponse>> GetTaxes(string address)
+public async Task<ActionResult<TaxResponse>> GetTaxes(string address)
     {
-        var transactions = await _solanaService.GetTransactions(address);
-        var calculator = new TaxCalculator();
-        var (capitalGains, income) = calculator.CalculateTaxes(transactions);
+        try
+        {
+            if (string.IsNullOrEmpty(address) || address.Length != 44)
+            {
+                return BadRequest("Invalid wallet address.");
+            }
 
-        HttpContext.Session.Set("CapitalGains", JsonSerializer.SerializeToUtf8Bytes(capitalGains));
-        HttpContext.Session.Set("StakingRewards", JsonSerializer.SerializeToUtf8Bytes(income));
+            var transactions = await _solanaService.GetTransactions(address);
+            var stakingRewards = await _solanaService.GetStakingRewards(address);
 
-        return Ok(new TaxResponse { CapitalGains = capitalGains, StakingRewards = income });
+            var calculator = new TaxCalculator();
+            var capitalGains = calculator.CalculateTaxes(transactions); // Adjust method name as needed
+            var income = stakingRewards;
+
+            HttpContext.Session.Set("CapitalGains", JsonSerializer.SerializeToUtf8Bytes(capitalGains));
+            HttpContext.Session.Set("StakingRewards", JsonSerializer.SerializeToUtf8Bytes(income));
+
+            return Ok(new TaxResponse { CapitalGains = capitalGains.CapitalGains, StakingRewards = income });
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"WalletsController: Error calculating taxes for {address}: {ex.Message}");
+            return StatusCode(500, "Failed to calculate taxes.");
+        }
     }
 
     [HttpGet("report/capital-gains")]

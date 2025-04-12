@@ -8,32 +8,28 @@ public class ReportService
 {
     public void ExportCapitalGains(List<TaxCalculation> calculations, string filePath)
     {
-        using (var writer = new StreamWriter(filePath))
-        using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
+        using var writer = new StreamWriter(filePath);
+        using var csv = new CsvWriter(writer, CultureInfo.InvariantCulture);
+        csv.WriteRecords(calculations.Select(c => new
         {
-            csv.WriteRecords(calculations.Select(c => new
-            {
-                c.Asset,
-                CostBasis = c.CostBasis,
-                Proceeds = c.Proceeds,
-                GainLoss = c.GainOrLoss,
-                ShortTerm = c.IsShortTerm ? "Yes" : "No"
-            }));
-        }
+            c.Asset,
+            c.CostBasis,
+            c.Proceeds,
+            GainLoss = c.GainOrLoss,
+            ShortTerm = c.IsShortTerm ? "Yes" : "No"
+        }));
     }
 
     public void ExportStakingIncome(List<StakingReward> rewards, string filePath)
     {
-        using (var writer = new StreamWriter(filePath))
-        using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
+        using var writer = new StreamWriter(filePath);
+        using var csv = new CsvWriter(writer, CultureInfo.InvariantCulture);
+        csv.WriteRecords(rewards.Select(r => new
         {
-            csv.WriteRecords(rewards.Select(r => new
-            {
-                r.WalletAddress,
-                r.Amount,
-                DateReceived = r.Timestamp,
-                r.UsdValueAtTime
-            }));
-        }
+            r.WalletAddress,
+            r.Amount,
+            DateReceived = r.Timestamp,
+            r.UsdValueAtTime
+        }));
     }
 }
