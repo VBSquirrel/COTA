@@ -8,7 +8,7 @@ public class SolanaService
     private readonly IHeliusApi _heliusApi;
     private readonly IConfiguration _configuration;
     private readonly PriceService _priceService;
-    private readonly Dictionary<string, (List<SolanaTransaction> Transactions, List<StakingReward> StakingRewards)> _transactionsByAddress = [];
+    private readonly Dictionary<string, (List<SolanaTransaction> Transactions, List<StakingReward> StakingRewards)> _transactionsByAddress = new();
 
     public SolanaService(IHeliusApi heliusApi, IConfiguration configuration, PriceService priceService)
     {
@@ -21,23 +21,27 @@ public class SolanaService
     {
         try
         {
+            Console.WriteLine($"SolanaService: Fetching transactions for address {address}");
+
             if (_transactionsByAddress.ContainsKey(address))
             {
-                Debug.WriteLine($"SolanaService: Returning cached transactions for {address}");
+                Console.WriteLine($"SolanaService: Returning cached transactions for {address}");
                 return _transactionsByAddress[address].Transactions;
             }
 
             var apiKey = _configuration["HeliusApiKey"];
             if (string.IsNullOrEmpty(apiKey))
             {
-                Debug.WriteLine("SolanaService: Helius API key is missing.");
+                Console.WriteLine("SolanaService: Helius API key is missing.");
                 return new List<SolanaTransaction>();
             }
+
+            Console.WriteLine($"SolanaService: Calling Helius API for {address}");
             var heliusTransactions = await _heliusApi.GetTransactions(address, apiKey);
 
             if (!heliusTransactions.Any())
             {
-                Debug.WriteLine($"SolanaService: No transactions found for {address}");
+                Console.WriteLine($"SolanaService: No transactions found for {address}");
                 _transactionsByAddress[address] = (new List<SolanaTransaction>(), new List<StakingReward>());
                 return new List<SolanaTransaction>();
             }
@@ -47,32 +51,54 @@ public class SolanaService
 
             foreach (var tx in heliusTransactions)
             {
-                // Log transaction details for debugging
-                Debug.WriteLine($"SolanaService: Processing tx {tx.Signature}, Timestamp: {tx.Timestamp}, Transfers: {tx.TokenTransfers?.Count ?? 0}");
+                Console.WriteLine($"SolanaService: Processing tx {tx.Signature}, Timestamp: {tx.Timestamp}, Transfers: {tx.TokenTransfers?.Count ?? 0}");
 
-                // Map to SolanaTransaction
-                var solTx = new SolanaTransaction
-                {
-                    Signature = tx.Signature,
-                    Timestamp = DateTimeOffset.FromUnixTimeSeconds(tx.Timestamp).UtcDateTime,
-                    // Amount from transfers or fallback
-                    Amount = tx.TokenTransfers?.Sum(t => t.Amount) ?? 0,
-                    Asset = tx.TokenTransfers?.FirstOrDefault()?.Mint ?? "SOL",
-                    Type = "TRANSFER" // Placeholder, adjust if Type is added
-                };
-                transactions.Add(solTx);
+                var timestamp = DateTimeOffset.FromUnixTimeSeconds(tx.Timestamp).UtcDateTime;
 
-                // Extract staking rewards
                 if (tx.TokenTransfers != null && tx.TokenTransfers.Any())
                 {
                     foreach (var transfer in tx.TokenTransfers)
                     {
-                        // Assume staking rewards are SOL transfers to the address
-                        // Adjust based on actual Helius data (e.g., specific Mint or FromUserAccount)
-                        if (transfer.ToUserAccount == address && transfer.Mint == null) // Native SOL transfer
+                        if (transfer == null) continue;
+
+                        Console.WriteLine($"SolanaService: Transfer - Mint: {transfer.Mint}, Amount: {transfer.Amount}, To: {transfer.ToUserAccount}, From: {transfer.FromUserAccount}");
+
+                        // Determine transaction type
+                        string txType;
+                        if (string.IsNullOrEmpty(transfer.Mint) && transfer.ToUserAccount == address && transfer.Amount > 0)
                         {
-                            var timestamp = DateTimeOffset.FromUnixTimeSeconds(tx.Timestamp).UtcDateTime;
-                            var usdPrice = await _priceService.GetPriceAtTime("SOL", timestamp);
+                            txType = "StakeReward"; // Native SOL received (likely staking reward)
+                        }
+                        else if (transfer.ToUserAccount == address)
+                        {
+                            txType = "Buy"; // Token/SOL received
+                        }
+                        else if (transfer.FromUserAccount == address)
+                        {
+                            txType = "Sell"; // Token/SOL sent
+                        }
+                        else
+                        {
+                            continue;
+                        }
+
+                        var asset = string.IsNullOrEmpty(transfer.Mint) ? "SOL" : transfer.Mint;
+                        var usdPrice = await _priceService.GetPriceAtTime("SOL", timestamp); // Hardcode SOL for now
+
+                        var solTx = new SolanaTransaction
+                        {
+                            Signature = tx.Signature,
+                            Timestamp = timestamp,
+                            Amount = transfer.Amount,
+                            Asset = asset,
+                            Type = txType,
+                            WalletAddress = address,
+                            UsdValueAtTime = usdPrice * transfer.Amount
+                        };
+                        transactions.Add(solTx);
+
+                        if (txType == "StakeReward")
+                        {
                             stakingRewards.Add(new StakingReward
                             {
                                 WalletAddress = address,
@@ -85,25 +111,26 @@ public class SolanaService
                 }
             }
 
-            Debug.WriteLine($"SolanaService: Fetched {transactions.Count} transactions, {stakingRewards.Count} staking rewards for {address}");
+            Console.WriteLine($"SolanaService: Fetched {transactions.Count} transactions, {stakingRewards.Count} staking rewards for {address}");
             _transactionsByAddress[address] = (transactions, stakingRewards);
             return transactions;
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"SolanaService: Error fetching transactions for {address}: {ex.Message}");
+            Console.WriteLine($"SolanaService: Error fetching transactions for {address}: {ex.Message}\n{ex.StackTrace}");
             return new List<SolanaTransaction>();
         }
     }
 
     public Task<List<StakingReward>> GetStakingRewards(string address)
     {
+        Console.WriteLine($"SolanaService: Retrieving staking rewards for {address}");
         if (_transactionsByAddress.TryGetValue(address, out var data))
         {
-            Debug.WriteLine($"SolanaService: Returning {data.StakingRewards.Count} cached staking rewards for {address}");
+            Console.WriteLine($"SolanaService: Returning {data.StakingRewards.Count} cached staking rewards for {address}");
             return Task.FromResult(data.StakingRewards);
         }
-        Debug.WriteLine($"SolanaService: No staking rewards found for {address}");
+        Console.WriteLine($"SolanaService: No staking rewards found for {address}");
         return Task.FromResult(new List<StakingReward>());
     }
 }

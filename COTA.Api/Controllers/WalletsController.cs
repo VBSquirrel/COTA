@@ -1,86 +1,129 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using COTA.Api.Services;
-using COTA.Core.Models;
 using System.Text.Json;
-using System.Diagnostics;
+using COTA.Core.Models;
+using COTA.Api.Services;
 
 namespace COTA.Api.Controllers;
 
+[Route("api/[controller]")]
 [ApiController]
-[Route("api/wallets")]
 public class WalletsController : ControllerBase
 {
     private readonly SolanaService _solanaService;
-    private readonly ReportService _reportService;
 
-    public WalletsController(SolanaService solanaService, ReportService reportService)
+    public WalletsController(SolanaService solanaService)
     {
         _solanaService = solanaService;
-        _reportService = reportService;
-    }
-
-    [HttpGet("{address}/test")]
-    public IActionResult Test(string address)
-    {
-        return Ok("API is working");
     }
 
     [HttpGet("{address}/taxes")]
-public async Task<ActionResult<TaxResponse>> GetTaxes(string address)
+    public async Task<ActionResult<(List<TaxCalculation>, List<StakingReward>)>> GetTaxes(string address)
     {
         try
         {
             if (string.IsNullOrEmpty(address) || address.Length != 44)
             {
+                Console.WriteLine($"WalletsController: Invalid address {address}");
                 return BadRequest("Invalid wallet address.");
             }
 
+            Console.WriteLine($"WalletsController: Processing taxes for {address}");
             var transactions = await _solanaService.GetTransactions(address);
-            var stakingRewards = await _solanaService.GetStakingRewards(address);
+            Console.WriteLine($"WalletsController: Retrieved {transactions.Count} transactions");
 
             var calculator = new TaxCalculator();
-            var capitalGains = calculator.CalculateTaxes(transactions); // Adjust method name as needed
-            var income = stakingRewards;
+            var (capitalGains, income) = calculator.CalculateTaxes(transactions);
+            Console.WriteLine($"WalletsController: Calculated {capitalGains.Count} capital gains, {income.Count} staking income");
 
             HttpContext.Session.Set("CapitalGains", JsonSerializer.SerializeToUtf8Bytes(capitalGains));
             HttpContext.Session.Set("StakingRewards", JsonSerializer.SerializeToUtf8Bytes(income));
 
-            return Ok(new TaxResponse { CapitalGains = capitalGains.CapitalGains, StakingRewards = income });
+            return Ok((capitalGains, income));
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"WalletsController: Error calculating taxes for {address}: {ex.Message}");
+            Console.WriteLine($"WalletsController: Error calculating taxes for {address}: {ex.Message}\n{ex.StackTrace}");
             return StatusCode(500, "Failed to calculate taxes.");
         }
     }
 
     [HttpGet("report/capital-gains")]
-    public IActionResult DownloadCapitalGains()
+    public IActionResult GetCapitalGainsReport()
     {
-        var data = HttpContext.Session.Get("CapitalGains");
-        if (data == null) return BadRequest("No capital gains data available.");
+        try
+        {
+            var capitalGainsBytes = HttpContext.Session.Get("CapitalGains");
+            if (capitalGainsBytes == null)
+            {
+                Console.WriteLine("WalletsController: No capital gains data in session.");
+                return NotFound("No capital gains data available.");
+            }
 
-        var calculations = JsonSerializer.Deserialize<List<TaxCalculation>>(data);
-        var filePath = Path.GetTempFileName() + ".csv";
-        _reportService.ExportCapitalGains(calculations!, filePath);
-        return PhysicalFile(filePath, "text/csv", "capital_gains.csv");
+            var capitalGains = JsonSerializer.Deserialize<List<TaxCalculation>>(capitalGainsBytes);
+            if (capitalGains == null)
+            {
+                Console.WriteLine("WalletsController: Failed to deserialize capital gains.");
+                return StatusCode(500, "Failed to process capital gains data.");
+            }
+
+            var csv = GenerateCsv(capitalGains);
+            return File(System.Text.Encoding.UTF8.GetBytes(csv), "text/csv", "capital_gains.csv");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"WalletsController: Error generating capital gains CSV: {ex.Message}\n{ex.StackTrace}");
+            return StatusCode(500, "Failed to generate report.");
+        }
     }
 
     [HttpGet("report/staking-income")]
-    public IActionResult DownloadStakingIncome()
+    public IActionResult GetStakingIncomeReport()
     {
-        var data = HttpContext.Session.Get("StakingRewards");
-        if (data == null) return BadRequest("No staking rewards data available.");
+        try
+        {
+            var stakingRewardsBytes = HttpContext.Session.Get("StakingRewards");
+            if (stakingRewardsBytes == null)
+            {
+                Console.WriteLine("WalletsController: No staking rewards data in session.");
+                return NotFound("No staking rewards data available.");
+            }
 
-        var rewards = JsonSerializer.Deserialize<List<StakingReward>>(data);
-        var filePath = Path.GetTempFileName() + ".csv";
-        _reportService.ExportStakingIncome(rewards!, filePath);
-        return PhysicalFile(filePath, "text/csv", "staking_income.csv");
+            var stakingRewards = JsonSerializer.Deserialize<List<StakingReward>>(stakingRewardsBytes);
+            if (stakingRewards == null)
+            {
+                Console.WriteLine("WalletsController: Failed to deserialize staking rewards.");
+                return StatusCode(500, "Failed to process staking rewards data.");
+            }
+
+            var csv = GenerateCsv(stakingRewards);
+            return File(System.Text.Encoding.UTF8.GetBytes(csv), "text/csv", "staking_income.csv");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"WalletsController: Error generating staking income CSV: {ex.Message}\n{ex.StackTrace}");
+            return StatusCode(500, "Failed to generate report.");
+        }
     }
-}
 
-public class TaxResponse
-{
-    public List<TaxCalculation>? CapitalGains { get; set; }
-    public List<StakingReward>? StakingRewards { get; set; }
+    private string GenerateCsv<T>(IEnumerable<T> items)
+    {
+        var csv = new System.Text.StringBuilder();
+        if (typeof(T) == typeof(TaxCalculation))
+        {
+            csv.AppendLine("Asset,CostBasis,Proceeds,GainOrLoss,IsShortTerm");
+            foreach (var item in items.Cast<TaxCalculation>())
+            {
+                csv.AppendLine($"{item.Asset},{item.CostBasis:F2},{item.Proceeds:F2},{item.GainOrLoss:F2},{item.IsShortTerm}");
+            }
+        }
+        else if (typeof(T) == typeof(StakingReward))
+        {
+            csv.AppendLine("WalletAddress,Amount,DateReceived,UsdValueAtTime");
+            foreach (var item in items.Cast<StakingReward>())
+            {
+                csv.AppendLine($"{item.WalletAddress},{item.Amount:F8},{item.Timestamp:yyyy-MM-dd},{item.UsdValueAtTime:F2}");
+            }
+        }
+        return csv.ToString();
+    }
 }

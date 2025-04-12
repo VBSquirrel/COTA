@@ -47,6 +47,7 @@ public class PriceService
 
         try
         {
+            Console.WriteLine("PriceService: Loading coin list...");
             var coins = await _coinGeckoApi.GetCoinList();
             foreach (var coin in coins)
             {
@@ -56,12 +57,11 @@ public class PriceService
                 }
             }
             _coinListLoaded = true;
-            Debug.WriteLine($"PriceService: Loaded {_assetToCoinIdCache.Count} coin mappings.");
+            Console.WriteLine($"PriceService: Loaded {_assetToCoinIdCache.Count} coin mappings.");
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"PriceService: Failed to load coin list: {ex.Message}");
-            // Fallback mapping
+            Console.WriteLine($"PriceService: Failed to load coin list: {ex.Message}");
             _assetToCoinIdCache.TryAdd("SOL", "solana");
             _coinListLoaded = true;
         }
@@ -69,51 +69,55 @@ public class PriceService
 
     public async Task<decimal> GetPriceAtTime(string? asset, DateTime date)
     {
+        Console.WriteLine($"PriceService: Fetching price for asset '{asset}' on {date:dd-MM-yyyy}");
         if (string.IsNullOrEmpty(asset))
         {
-            Debug.WriteLine("PriceService: Asset is null or empty, defaulting to SOL.");
+            Console.WriteLine("PriceService: Asset is null or empty, defaulting to SOL.");
             asset = "SOL";
         }
 
-        // Ensure coin list is loaded
         await LoadCoinListAsync();
 
-        // Map asset to CoinGecko coin ID
         if (!_assetToCoinIdCache.TryGetValue(asset.ToUpper(), out var coinId))
         {
-            Debug.WriteLine($"PriceService: Asset '{asset}' not found in coin list, defaulting to SOL.");
-            coinId = "solana"; // Default to SOL
+            Console.WriteLine($"PriceService: Asset '{asset}' not found, defaulting to SOL.");
+            coinId = "solana";
         }
 
-        // Cap future dates
         if (date.Date > DateTime.UtcNow.Date)
         {
-            Debug.WriteLine($"PriceService: Date '{date:dd-MM-yyyy}' is in the future, using today.");
+            Console.WriteLine($"PriceService: Date '{date:dd-MM-yyyy}' is in the future, using today.");
             date = DateTime.UtcNow;
         }
 
         var dateStr = date.ToString("dd-MM-yyyy");
-        try
+        for (int retry = 0; retry < 3; retry++)
         {
-            var response = await _coinGeckoApi.GetHistoricalPrice(coinId, dateStr);
-            var price = response.Market_Data?.Current_Price?["usd"] ?? 0;
-            Debug.WriteLine($"PriceService: Fetched price for '{coinId}' on {dateStr}: ${price}");
-            return price;
+            try
+            {
+                var response = await _coinGeckoApi.GetHistoricalPrice(coinId, dateStr);
+                var price = response.Market_Data?.Current_Price?["usd"] ?? 0;
+                Console.WriteLine($"PriceService: Fetched price for '{coinId}' on {dateStr}: ${price}");
+                return price;
+            }
+            catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                Console.WriteLine($"PriceService: 401 Unauthorized for '{coinId}' on {dateStr}.");
+                return 0;
+            }
+            catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                Console.WriteLine($"PriceService: 429 Rate limit hit for '{coinId}' on {dateStr}, retrying ({retry + 1}/3)...");
+                await Task.Delay(1000 * (retry + 1));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"PriceService: Error fetching price for '{coinId}' on {dateStr}: {ex.Message}");
+                return 0;
+            }
         }
-        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            Debug.WriteLine($"PriceService: 404 for '{coinId}' on {dateStr}, returning 0.");
-            return 0;
-        }
-        catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
-        {
-            Debug.WriteLine($"PriceService: Rate limit hit for '{coinId}' on {dateStr}, returning 0.");
-            return 0;
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"PriceService: Error fetching price for '{coinId}' on {dateStr}: {ex.Message}");
-            return 0;
-        }
+
+        Console.WriteLine($"PriceService: Failed to fetch price for '{coinId}' on {dateStr} after retries.");
+        return 0;
     }
 }
