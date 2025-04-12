@@ -63,27 +63,42 @@ public class SolanaService
 
                         Console.WriteLine($"SolanaService: Transfer - Mint: {transfer.Mint}, Amount: {transfer.Amount}, To: {transfer.ToUserAccount}, From: {transfer.FromUserAccount}");
 
-                        // Determine transaction type
-                        string txType;
-                        if (string.IsNullOrEmpty(transfer.Mint) && transfer.ToUserAccount == address && transfer.Amount > 0)
+                        if (transfer.Amount <= 0)
                         {
-                            txType = "StakeReward"; // Native SOL received (likely staking reward)
-                        }
-                        else if (transfer.ToUserAccount == address)
-                        {
-                            txType = "Buy"; // Token/SOL received
-                        }
-                        else if (transfer.FromUserAccount == address)
-                        {
-                            txType = "Sell"; // Token/SOL sent
-                        }
-                        else
-                        {
+                            Console.WriteLine($"SolanaService: Skipping transfer with Amount <= 0");
                             continue;
                         }
 
-                        var asset = string.IsNullOrEmpty(transfer.Mint) ? "SOL" : transfer.Mint;
-                        var usdPrice = await _priceService.GetPriceAtTime("SOL", timestamp); // Hardcode SOL for now
+                        string txType;
+                        if (string.IsNullOrEmpty(transfer.Mint) && transfer.ToUserAccount == address)
+                        {
+                            // Check for validator-like FromUserAccount
+                            if (transfer.FromUserAccount?.StartsWith("Stake", StringComparison.OrdinalIgnoreCase) == true ||
+                                transfer.FromUserAccount?.Contains("Validator", StringComparison.OrdinalIgnoreCase) == true)
+                            {
+                                txType = "StakeReward";
+                            }
+                            else
+                            {
+                                txType = "Buy";
+                            }
+                        }
+                        else if (transfer.ToUserAccount == address)
+                        {
+                            txType = "Buy";
+                        }
+                        else if (transfer.FromUserAccount == address)
+                        {
+                            txType = "Sell";
+                        }
+                        else
+                        {
+                            Console.WriteLine($"SolanaService: Skipping irrelevant transfer");
+                            continue;
+                        }
+
+                        var asset = string.IsNullOrEmpty(transfer.Mint) ? "SOL" : "SOL"; // Hardcode SOL for now
+                        var usdPrice = await _priceService.GetPriceAtTime("SOL", timestamp);
 
                         var solTx = new SolanaTransaction
                         {
@@ -108,6 +123,12 @@ public class SolanaService
                             });
                         }
                     }
+                }
+                else
+                {
+                    // Handle non-transfer transactions (e.g., SOL transfers)
+                    Console.WriteLine($"SolanaService: No transfers, checking for SOL activity");
+                    // Placeholder: Helius free API may not provide SOL transfer details
                 }
             }
 

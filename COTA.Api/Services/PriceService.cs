@@ -53,7 +53,12 @@ public class PriceService
             {
                 if (!string.IsNullOrEmpty(coin.Symbol) && !string.IsNullOrEmpty(coin.Id))
                 {
-                    _assetToCoinIdCache.TryAdd(coin.Symbol.ToUpper(), coin.Id);
+                    // Prefer solana for SOL
+                    if (coin.Symbol.ToUpper() == "SOL" && coin.Id != "solana")
+                    {
+                        continue;
+                    }
+                    _assetToCoinIdCache.AddOrUpdate(coin.Symbol.ToUpper(), coin.Id, (key, oldValue) => coin.Id);
                 }
             }
             _coinListLoaded = true;
@@ -108,7 +113,7 @@ public class PriceService
             catch (Refit.ApiException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
             {
                 Console.WriteLine($"PriceService: 429 Rate limit hit for '{coinId}' on {dateStr}, retrying ({retry + 1}/3)...");
-                await Task.Delay(1000 * (retry + 1));
+                await Task.Delay(2000 * (retry + 1));
             }
             catch (Exception ex)
             {

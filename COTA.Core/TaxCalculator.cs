@@ -12,6 +12,12 @@ public class TaxCalculator
         {
             if (tx.Type == "Buy" || tx.Type == "StakeReward")
             {
+                if (tx.Amount <= 0 || tx.UsdValueAtTime <= 0)
+                {
+                    Console.WriteLine($"TaxCalculator: Skipping {tx.Type} tx {tx.Signature} with Amount: {tx.Amount}, UsdValueAtTime: {tx.UsdValueAtTime}");
+                    continue;
+                }
+
                 inventory.Enqueue(tx);
                 if (tx.Type == "StakeReward")
                 {
@@ -26,6 +32,12 @@ public class TaxCalculator
             }
             else if (tx.Type == "Sell")
             {
+                if (tx.Amount <= 0 || tx.UsdValueAtTime <= 0)
+                {
+                    Console.WriteLine($"TaxCalculator: Skipping Sell tx {tx.Signature} with Amount: {tx.Amount}, UsdValueAtTime: {tx.UsdValueAtTime}");
+                    continue;
+                }
+
                 if (inventory.TryDequeue(out var buyTx))
                 {
                     var gainOrLoss = (tx.UsdValueAtTime ?? 0) - (buyTx.UsdValueAtTime ?? 0);
@@ -40,9 +52,18 @@ public class TaxCalculator
                         IsShortTerm = holdingPeriod.TotalDays <= 365
                     });
                 }
+                else
+                {
+                    Console.WriteLine($"TaxCalculator: No buy tx available for Sell tx {tx.Signature}");
+                }
+            }
+            else
+            {
+                Console.WriteLine($"TaxCalculator: Skipping tx {tx.Signature} with unknown Type: {tx.Type}");
             }
         }
 
+        Console.WriteLine($"TaxCalculator: Generated {capitalGains.Count} capital gains, {income.Count} staking income");
         return (capitalGains, income);
     }
 }
