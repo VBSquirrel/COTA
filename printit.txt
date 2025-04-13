@@ -1,0 +1,18 @@
+ Volume in drive C has no label.
+ Volume Serial Number is F8E8-EEA8
+
+ Directory of C:\Users\Squirrel\source\repos\COTA
+
+04/12/2025  05:40 PM    <DIR>          .
+04/12/2025  05:40 PM    <DIR>          ..
+04/12/2025  12:50 PM             2,581 .gitattributes
+04/12/2025  12:50 PM             6,585 .gitignore
+04/12/2025  03:17 PM    <DIR>          COTA.Api
+04/12/2025  12:15 PM    <DIR>          COTA.Client
+04/12/2025  03:17 PM    <DIR>          COTA.Core
+04/12/2025  11:22 AM             2,098 COTA.sln
+04/12/2025  12:17 PM               257 COTA.slnLaunch.user
+04/12/2025  05:40 PM                 0 printit.txt
+04/12/2025  02:27 PM             1,583 README.md
+               6 File(s)         13,104 bytes
+               5 Dir(s)  506,167,734,272 bytes free

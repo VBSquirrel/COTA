@@ -1,19 +1,32 @@
-﻿@page "/"
+﻿@page "/taxreport"
 @using COTA.Core.Models
 @inject HttpClient Http
 @inject IJSRuntime JSRuntime
 
-<h3>Solana Tax Calculator</h3>
+<h3>Tax Report</h3>
 
 <div>
     <label>Wallet Addresses (one per line):</label>
     <textarea @bind="walletAddresses" rows="5" cols="50" class="form-control"></textarea>
-    <button @onclick="CalculateTaxes" class="btn btn-primary mt-2">Get Tax Report</button>
+</div>
+
+<div style="margin-top: 10px;">
+    <label>Start Date: </label>
+    <InputDate @bind-Value="startDate" class="form-control" />
+</div>
+
+<div style="margin-top: 10px;">
+    <label>End Date: </label>
+    <InputDate @bind-Value="endDate" class="form-control" />
+</div>
+
+<div style="margin-top: 10px;">
+    <button @onclick="CalculateTaxes" class="btn btn-primary">Get Tax Report</button>
 </div>
 
 @if (!string.IsNullOrEmpty(errorMessage))
 {
-    <div class="alert alert-danger mt-3">
+    <div class="alert alert-danger mt-3" role="alert">
         @errorMessage
     </div>
 }
@@ -47,13 +60,6 @@
     <button @onclick="DownloadCapitalGainsCsv" class="btn btn-success">Download Capital Gains CSV</button>
 }
 
-@if (taxCalculations != null && !taxCalculations.Any())
-{
-    <div class="alert alert-info mt-3">
-        No capital gains found for the provided wallet addresses.
-    </div>
-}
-
 @if (stakingRewards != null && stakingRewards.Any())
 {
     <h4>Staking Income</h4>
@@ -81,17 +87,41 @@
 
 @code {
     private string walletAddresses = "";
+    private DateTime? startDate;
+    private DateTime? endDate;
     private List<TaxCalculation>? taxCalculations;
     private List<StakingReward>? stakingRewards;
-    private string? errorMessage;
+    private string errorMessage = "";
 
     private async Task CalculateTaxes()
     {
         try
         {
-            errorMessage = null;
+            // Validate date range
+            if (startDate.HasValue && endDate.HasValue && startDate > endDate)
+            {
+                errorMessage = "Start Date cannot be after End Date.";
+                return;
+            }
+
+            errorMessage = ""; // Clear any previous error messages
+
             var addresses = walletAddresses.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
-            var response = await Http.PostAsJsonAsync("api/wallets/taxes", addresses);
+            if (!addresses.Any())
+            {
+                errorMessage = "Please provide at least one wallet address.";
+                return;
+            }
+
+            // Create the request payload with addresses and date range
+            var request = new TaxRequest
+                {
+                    Addresses = addresses,
+                    StartDate = startDate,
+                    EndDate = endDate
+                };
+
+            var response = await Http.PostAsJsonAsync("api/wallets/taxes", request);
             if (response.IsSuccessStatusCode)
             {
                 var result = await response.Content.ReadFromJsonAsync<TaxResponse>();
@@ -100,7 +130,8 @@
             }
             else
             {
-                errorMessage = $"Error: {await response.Content.ReadAsStringAsync()}";
+                var errorContent = await response.Content.ReadAsStringAsync();
+                errorMessage = $"Error fetching tax report: {errorContent}";
                 Console.WriteLine(errorMessage);
             }
         }
@@ -157,6 +188,13 @@
             errorMessage = $"Error downloading staking income CSV: {ex.Message}";
             Console.WriteLine(errorMessage);
         }
+    }
+
+    private class TaxRequest
+    {
+        public string[] Addresses { get; set; }
+        public DateTime? StartDate { get; set; }
+        public DateTime? EndDate { get; set; }
     }
 
     private class TaxResponse

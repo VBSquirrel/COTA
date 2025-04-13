@@ -19,6 +19,7 @@ builder.Services.AddRefitClient<ICoinGeckoApi>()
 builder.Services.AddSingleton<SolanaService>();
 builder.Services.AddSingleton<PriceService>();
 builder.Services.AddSingleton<ReportService>();
+builder.Services.AddSingleton<TaxCalculator>(); // Add this line
 builder.Services.AddDistributedMemoryCache();
 builder.Services.AddSession(options =>
 {
@@ -27,6 +28,17 @@ builder.Services.AddSession(options =>
     options.Cookie.IsEssential = true;
 });
 
+// Add CORS
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowClient", builder =>
+    {
+        builder.WithOrigins("https://localhost:7243")
+               .AllowAnyMethod()
+               .AllowAnyHeader()
+               .AllowCredentials();
+    });
+});
 
 var app = builder.Build();
 
@@ -36,6 +48,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseCors("AllowClient");
 app.UseSession();
 app.UseHttpsRedirection();
 app.UseAuthorization();
